@@ -50,7 +50,7 @@ OmniNeo provides:
 
 OmniNeo is designed to run on high-memory, multi-core servers:
 
-- **Recommended**: >16 cores, minimum 128GB RAM, >5TB of free disk space
+- **Recommended**: >16 cores, minimum 128GB RAM, >2TB of free disk space
 - **Optimal environment**: HPC cluster with multiple compute nodes 
 
 > **Note**: By adjusting the memory and CPU parameters in `base.config` and `nextflow.config`, it is possible to run OmniNeo on systems with lower resources, but processing time will increase significantly.
@@ -121,7 +121,7 @@ Due to licensing restrictions, you must download and install the following softw
 
 - annovar (Variant annotation)
 - HLAminer (HLA Class II typing)
-- BWA (for HLAminer reference alignment)
+- netmhcpan, netmhcpanii and nettcl (MHC binding)
 
 After installing these tools, set their paths in `nextflow.config`.
 
@@ -281,7 +281,7 @@ The pipeline generates output in the following structure:
 │   │   ├── 04_gatk/                   # Variant preprocessing
 │   │   ├── 06_mutect2/                # Somatic variant calling
 │   │   ├── 07_annovar/                # Variant annotation
-│   │   └── 11_integrated/             # Integrated DNA peptide results
+│   │   └── 08_integrated/             # Integrated DNA peptide results
 │   │
 │   ├── rna/
 │   │   ├── 01_fastp/                  # RNA quality control
@@ -290,7 +290,7 @@ The pipeline generates output in the following structure:
 │   │   ├── 05_kallisto/               # Transcript quantification
 │   │   ├── 09_hla_typing/             # HLA Class I typing results
 │   │   ├── 09_hla_typingii/           # HLA Class II typing results
-│   │   └── 12_integrated/             # Integrated RNA peptide results
+│   │   └── 10_integrated/             # Integrated RNA peptide results
 │   │
 │   └── MS_Database/                   # Combined MS database for proteomics
 │       ├── <sample_id>_combined_ms_database.fasta
