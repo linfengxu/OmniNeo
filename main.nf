@@ -161,18 +161,10 @@ workflow {
             )
         }
 
-    // 用于存储各工作流的结果
-    dna_fs_del_1_ch = Channel.empty()
-    dna_fs_del_2_ch = Channel.empty()
-    dna_snv_ch = Channel.empty()
-    dna_nfsdel_ch = Channel.empty()
-    dna_nfsins_ch = Channel.empty()
-    dna_fsins_ch = Channel.empty()
-    dna_nfssub_ch = Channel.empty()
-    dna_stoploss_ch = Channel.empty()
-    rna_noncoding_long_ch = Channel.empty()
-    rna_noncoding_short_ch = Channel.empty()
-    rna_fusion_ch = Channel.empty()
+    // 初始化通道变量
+    dna_merged_fasta_ch = Channel.empty()
+    rna_short_peptides_ch = Channel.empty()
+    rna_long_peptides_ch = Channel.empty()
 
     // 运行 DNA 分析
     if (!params.skip_dna) {
@@ -182,75 +174,83 @@ workflow {
         )
         
         // 将DNA工作流的输出传递给下游分析工作流
-        downstream_results = DNA_DOWNSTREAM(
-            dna_results.annotation_results,
+        dna_downstream_results = DNA_DOWNSTREAM(
             dna_results.annotation_vcf
         )
         
-        // 收集DNA肽段文件用于质谱分析 - 直接使用新的输出通道
-        dna_fs_del_1_ch = downstream_results.fs_del_junction_1
-        dna_fs_del_2_ch = downstream_results.fs_del_junction_2
-        dna_snv_ch = downstream_results.snv_peptides
-        dna_nfsdel_ch = downstream_results.nfsdel_peptides
-        dna_nfsins_ch = downstream_results.nfsins_peptides
-        dna_fsins_ch = downstream_results.fsins_peptides
-        dna_nfssub_ch = downstream_results.nfssub_peptides
-        dna_stoploss_ch = downstream_results.stoploss_peptides
+        // 获取DNA合并的肽段文件
+        dna_merged_fasta_ch = dna_downstream_results.merged_fasta
         
         // 输出整合结果
-        downstream_results.all_integrated_results.subscribe { sample_id, all_summaries ->
-            log.info "Combined analysis results for sample: ${sample_id}"
-            log.info "Total summaries: ${all_summaries.size()}"
+        dna_downstream_results.merged_fasta.subscribe { sample_id, merged_fasta ->
+            log.info "DNA merged peptides for sample: ${sample_id}, file: ${merged_fasta}"
         }
     }
 
     // 运行 RNA 分析
     if (!params.skip_rna) {
+        // 执行RNA工作流
         rna_results = RNA_WORKFLOW(
             samples_ch,
             params.hg38db
         )
         
+        // 检查融合结果是否为空
+        if (rna_results.fusion_results == null) {
+            log.warn "No fusion results detected from RNA workflow, downstream analysis may be affected"
+        }
+        
         // 将RNA工作流的输出传递给RNA下游分析工作流
         rna_downstream_results = RNA_DOWNSTREAM(
             rna_results.annotation_results,
             rna_results.kallisto_abundance,
-            rna_results.star_fusion_results
+            rna_results.fusion_results
         )
         
-        // 收集RNA非编码区肽段和融合肽段
-        rna_noncoding_long_ch = rna_downstream_results.noncoding_long_peptides
-        rna_noncoding_short_ch = rna_downstream_results.noncoding_short_peptides
-        rna_fusion_ch = rna_downstream_results.fusion_peptides
+        // 获取RNA短肽段和长肽段
+        rna_short_peptides_ch = rna_downstream_results.all_short_peptides
+        rna_long_peptides_ch = rna_downstream_results.all_long_peptides
         
         // 输出合并后的肽段结果
         rna_downstream_results.all_short_peptides.subscribe { sample_id, peptide_file ->
-            log.info "Short peptides available for MHC prediction for sample: ${sample_id}"
+            log.info "RNA short peptides for sample: ${sample_id}, file: ${peptide_file}"
+        }
+        
+        rna_downstream_results.all_long_peptides.subscribe { sample_id, peptide_file ->
+            log.info "RNA long peptides for sample: ${sample_id}, file: ${peptide_file}"
+        }
+        
+        // 输出融合肽段结果的特定日志
+        rna_downstream_results.fusion_short_peptides.subscribe { sample_id, peptide_file ->
+            log.info "RNA fusion short peptides for sample: ${sample_id}, file: ${peptide_file}"
+        }
+        
+        rna_downstream_results.fusion_long_peptides.subscribe { sample_id, peptide_file ->
+            log.info "RNA fusion long peptides for sample: ${sample_id}, file: ${peptide_file}"
         }
     }
     
     // 合并DNA和RNA肽段用于质谱分析
-    if (!params.skip_combine_ms && !params.skip_dna && !params.skip_rna) {
+    if (!params.skip_combine_ms) {
+        // 准备参考数据库路径
+        uniprot_db = file(params.combine_ms.uniprot_fasta)
+        crap_db = file(params.combine_ms.crap_fasta)
+        
+        // 运行合并MS数据库进程
         ms_results = COMBINE_MS(
-            dna_fs_del_1_ch,
-            dna_fs_del_2_ch,
-            dna_snv_ch,
-            dna_nfsdel_ch,
-            dna_nfsins_ch,
-            dna_fsins_ch,
-            dna_nfssub_ch,
-            dna_stoploss_ch,
-            rna_noncoding_long_ch,
-            rna_noncoding_short_ch,
-            rna_fusion_ch
+            dna_merged_fasta_ch,        // DNA合并的肽段
+            rna_short_peptides_ch,      // RNA短肽段
+            rna_long_peptides_ch,       // RNA长肽段
+            uniprot_db,                 // UniProt参考数据库
+            crap_db                     // cRAP污染物数据库
         )
         
-        ms_results.ms_database.subscribe { sample_id, ms_db ->
+        ms_results.combined_ms_db.subscribe { sample_id, ms_db ->
             log.info "Mass spectrometry database created for sample: ${sample_id}"
-            log.info "MS database location: ${params.combine_ms.ms_outdir}/${sample_id}/${ms_db.getName()}"
+            log.info "MS database location: ${params.outdir}/${sample_id}/ms_database/${ms_db.getName()}"
         }
         
-        ms_results.database_stats.subscribe { sample_id, stats_file ->
+        ms_results.database_stats.subscribe { stats_file ->
             log.info "Mass spectrometry database statistics available in: ${stats_file}"
         }
         
@@ -258,7 +258,7 @@ workflow {
         if (!params.skip_maxquant) {
             // 运行MaxQuant分析，使用来自samplesheet的MS文件路径
             maxquant_results = MAXQUANT_ANALYSIS(
-                ms_results.ms_database,
+                ms_results.combined_ms_db,
                 params.samplesheet
             )
             
@@ -271,107 +271,6 @@ workflow {
             if (!params.maxquant.skip_run) {
                 maxquant_results.results.subscribe { sample_id, results ->
                     log.info "MaxQuant analysis completed for sample: ${sample_id}"
-                    log.info "Results available in: ${params.maxquant.results_dir}/${sample_id}"
-                }
-            }
-        }
-    }
-    // 如果跳过了RNA分析，但需要MS数据库，则仅合并DNA肽段
-    else if (!params.skip_combine_ms && !params.skip_dna && params.skip_rna) {
-        // 创建空的RNA通道
-        empty_rna_long_ch = Channel.empty()
-        empty_rna_short_ch = Channel.empty()
-        empty_rna_fusion_ch = Channel.empty()
-        
-        ms_results = COMBINE_MS(
-            dna_fs_del_1_ch,
-            dna_fs_del_2_ch,
-            dna_snv_ch,
-            dna_nfsdel_ch,
-            dna_nfsins_ch,
-            dna_fsins_ch,
-            dna_nfssub_ch,
-            dna_stoploss_ch,
-            empty_rna_long_ch,
-            empty_rna_short_ch,
-            empty_rna_fusion_ch
-        )
-        
-        ms_results.ms_database.subscribe { sample_id, ms_db ->
-            log.info "DNA-only mass spectrometry database created for sample: ${sample_id}"
-            log.info "MS database location: ${params.combine_ms.ms_outdir}/${sample_id}/${ms_db.getName()}"
-        }
-        
-        // 运行MaxQuant分析（如果未跳过）- DNA专用路径
-        if (!params.skip_maxquant) {
-            // 运行MaxQuant分析，使用来自samplesheet的MS文件路径
-            maxquant_results = MAXQUANT_ANALYSIS(
-                ms_results.ms_database,
-                params.samplesheet
-            )
-            
-            // 输出MaxQuant配置文件和结果信息
-            maxquant_results.mqpar_files.subscribe { sample_id, mqpar_file ->
-                log.info "DNA-only MaxQuant configuration generated for sample: ${sample_id}"
-                log.info "Configuration file: ${params.maxquant.mqpar_dir}/mqpar_${sample_id}.xml"
-            }
-            
-            if (!params.maxquant.skip_run) {
-                maxquant_results.results.subscribe { sample_id, results ->
-                    log.info "DNA-only MaxQuant analysis completed for sample: ${sample_id}"
-                    log.info "Results available in: ${params.maxquant.results_dir}/${sample_id}"
-                }
-            }
-        }
-    }
-    // 如果跳过了DNA分析，但需要MS数据库，则仅合并RNA肽段
-    else if (!params.skip_combine_ms && params.skip_dna && !params.skip_rna) {
-        // 创建空的DNA通道
-        empty_dna_fs_del_1_ch = Channel.empty()
-        empty_dna_fs_del_2_ch = Channel.empty()
-        empty_dna_snv_ch = Channel.empty()
-        empty_dna_nfsdel_ch = Channel.empty()
-        empty_dna_nfsins_ch = Channel.empty()
-        empty_dna_fsins_ch = Channel.empty()
-        empty_dna_nfssub_ch = Channel.empty()
-        empty_dna_stoploss_ch = Channel.empty()
-        
-        ms_results = COMBINE_MS(
-            empty_dna_fs_del_1_ch,
-            empty_dna_fs_del_2_ch,
-            empty_dna_snv_ch,
-            empty_dna_nfsdel_ch,
-            empty_dna_nfsins_ch,
-            empty_dna_fsins_ch,
-            empty_dna_nfssub_ch,
-            empty_dna_stoploss_ch,
-            rna_noncoding_long_ch,
-            rna_noncoding_short_ch,
-            rna_fusion_ch
-        )
-        
-        ms_results.ms_database.subscribe { sample_id, ms_db ->
-            log.info "RNA-only mass spectrometry database created for sample: ${sample_id}"
-            log.info "MS database location: ${params.combine_ms.ms_outdir}/${sample_id}/${ms_db.getName()}"
-        }
-        
-        // 运行MaxQuant分析（如果未跳过）- RNA专用路径
-        if (!params.skip_maxquant) {
-            // 运行MaxQuant分析，使用来自samplesheet的MS文件路径
-            maxquant_results = MAXQUANT_ANALYSIS(
-                ms_results.ms_database,
-                params.samplesheet
-            )
-            
-            // 输出MaxQuant配置文件和结果信息
-            maxquant_results.mqpar_files.subscribe { sample_id, mqpar_file ->
-                log.info "RNA-only MaxQuant configuration generated for sample: ${sample_id}"
-                log.info "Configuration file: ${params.maxquant.mqpar_dir}/mqpar_${sample_id}.xml"
-            }
-            
-            if (!params.maxquant.skip_run) {
-                maxquant_results.results.subscribe { sample_id, results ->
-                    log.info "RNA-only MaxQuant analysis completed for sample: ${sample_id}"
                     log.info "Results available in: ${params.maxquant.results_dir}/${sample_id}"
                 }
             }
