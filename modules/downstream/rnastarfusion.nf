@@ -44,21 +44,30 @@ process RNA_STAR_FUSION_PEPTIDES {
     def long_min = params.fusion_peptides?.long_min ?: 15
     def long_max = params.fusion_peptides?.long_max ?: 30
     """
-    # 运行融合肽段分析
-    python ${projectDir}/bin/RNA/star_fusion.py \\
-        -i ${fusion_results} \\
-        -o ./ \\
-        --short_min ${short_min} \\
-        --short_max ${short_max} \\
-        --long_min ${long_min} \\
-        --long_max ${long_max}
-        
-    # 打印分析完成信息
-    echo "RNA fusion peptide generation completed for sample ${sample_id}"
-    echo "Generated fusion peptides:"
-    ls -la fasta/ csv/ 2>/dev/null || true
-    
-    # 如果没有找到融合事件，创建空目录以满足输出要求
     mkdir -p fasta csv
+    
+    # 检查融合结果文件是否存在且不为空
+    if [ -s "${fusion_results}" ]; then
+        # 运行融合肽段分析
+        python ${projectDir}/bin/RNA/star_fusion.py \\
+            -i ${fusion_results} \\
+            -o ./ \\
+            --short_min ${short_min} \\
+            --short_max ${short_max} \\
+            --long_min ${long_min} \\
+            --long_max ${long_max}
+            
+        # 打印分析完成信息
+        echo "RNA fusion peptide generation completed for sample ${sample_id}"
+        echo "Generated fusion peptides:"
+        ls -la fasta/ csv/ 2>/dev/null || true
+    else
+        echo "WARNING: No fusion events found or empty results file for sample ${sample_id}"
+        # 创建空文件以确保输出通道正常工作
+        touch fasta/${sample_id}_short_peptides.fasta
+        touch fasta/${sample_id}_long_peptides.fasta
+        touch csv/${sample_id}_short_peptides.csv
+        touch csv/${sample_id}_long_peptides.csv
+    fi
     """
 }
