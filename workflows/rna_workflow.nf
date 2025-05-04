@@ -222,11 +222,10 @@ workflow RNA_WORKFLOW {
  
     // 输出结果
     emit:
-    //filtered_variants = filtered_vep_results.filtered_results
-    fusion_results = star_fusion_results.fusion_predictions
-    kallisto_results = kallisto_quant_results.quant_results
+    fusion_results = star_fusion_results.fusion_results  // 确保通道名称正确
+    kallisto_abundance = kallisto_quant_results.quant_results
     hla_results = hla_typing_results.hla_results
-    hla2_results = hlaminer_typing_results.hla_results  // 新增HLA-II分型结果
+    hla2_results = hlaminer_typing_results.hla_results  // HLA-II分型结果
     annotation_results = anovar_results.anovar_txt
     annotation_vcf = anovar_results.anovar_vcf
 }
