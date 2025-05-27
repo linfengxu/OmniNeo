@@ -8,13 +8,13 @@ process GATK_MARKDUPLICATES {
     publishDir {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        // Determine data type (DNA or RNA)
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // Determine sample type (normal or tumor)
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -42,13 +42,13 @@ process GATK_MARKDUPLICATES {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     
-    // 判断数据类型（DNA或RNA）
+    // Determine data type (DNA or RNA)
     def data_type = "dna"
     if (sample_id.contains("_rna_")) {
         data_type = "rna"
     }
     
-    // 判断样本类型（normal或tumor）
+    // Determine sample type (normal or tumor)
     def sample_type = "normal"
     if (sample_id.contains("_tumor")) {
         sample_type = "tumor"
@@ -91,13 +91,13 @@ process GATK_ADD_OR_REPLACE_READ_GROUPS {
     publishDir {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        // Determine data type (DNA or RNA)
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // Determine sample type (normal or tumor)
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -122,13 +122,13 @@ process GATK_ADD_OR_REPLACE_READ_GROUPS {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     
-    // 判断数据类型（DNA或RNA）
+    //  Determine data type (DNA or RNA)
     def data_type = "dna"
     if (sample_id.contains("_rna_")) {
         data_type = "rna"
     }
     
-    // 判断样本类型（normal或tumor）
+    // Determine sample type (normal or tumor)
     def sample_type = "normal"
     if (sample_id.contains("_tumor")) {
         sample_type = "tumor"
@@ -171,13 +171,13 @@ process GATK_BASE_RECALIBRATOR {
     publishDir {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        //  Determine data type (DNA or RNA)
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // Determine sample type (normal or tumor)
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -203,13 +203,13 @@ process GATK_BASE_RECALIBRATOR {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     
-    // 判断数据类型（DNA或RNA）
+    // Determine data type (DNA or RNA)
     def data_type = "dna"
     if (sample_id.contains("_rna_")) {
         data_type = "rna"
     }
     
-    // 判断样本类型（normal或tumor）
+    // Determine sample type (normal or tumor)
     def sample_type = "normal"
     if (sample_id.contains("_tumor")) {
         sample_type = "tumor"
@@ -220,7 +220,7 @@ process GATK_BASE_RECALIBRATOR {
     def tmp_dir = "/tmp/${workflow.sessionId}/${sample_id}"
 
     """
-    # 获取参考基因组文件的路径
+    # 获取参考基因组文件的路径      
     ref_path=\$(readlink -f ${reference_file})
     ref_dir=\$(dirname \$ref_path)
     ref_base=\$(basename \$ref_path)
@@ -787,10 +787,10 @@ process GATK_FILTER_MUTECT_CALLS {
     stats_param=""
     if [[ -f "${vcf_stats}" && "\$stats_size" -gt 0 ]]; then
         stats_param="--stats ${vcf_stats}"
-        echo "使用stats文件: ${vcf_stats}"
+        echo "Using stats file: ${vcf_stats}"
     else
         stats_param="--dummy-stats"
-        echo "Stats文件不存在或为空，使用--dummy-stats"
+        echo "Stats file not found or empty, using --dummy-stats"
     fi
     
     gatk FilterMutectCalls \\

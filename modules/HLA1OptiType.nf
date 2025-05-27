@@ -1,6 +1,6 @@
-// HLA-I分型模块，使用OptiType对RNA-seq样本进行HLA分型
+// HLA-I typing module, using OptiType for HLA typing of RNA-seq samples
 
-// 第一步：使用Razers3提取与HLA参考序列匹配的读数
+// Step 1: Use Razers3 to extract reads matching HLA reference sequences
 process RAZERS3_EXTRACT {
     tag "${sample_id}"
     label 'process_medium'
@@ -23,13 +23,13 @@ process RAZERS3_EXTRACT {
     def hla_ref_path = "/data/hla_reference_rna.fasta"
     
     """
-    # 第一步：使用Razers3提取与HLA参考序列匹配的读数 - 正向读数
+    # Step 1: Use Razers3 to extract reads matching HLA reference sequences - forward reads
     razers3 -i 95 -m 1 -dr 0 \\
         -o ${sample_id}_fished_1.bam \\
         ${hla_ref_path} \\
         ${read1}
         
-    # 第二步：使用Razers3提取与HLA参考序列匹配的读数 - 反向读数
+    # Step 2: Use Razers3 to extract reads matching HLA reference sequences - reverse reads
     razers3 -i 95 -m 1 -dr 0 \\
         -o ${sample_id}_fished_2.bam \\
         ${hla_ref_path} \\
@@ -37,7 +37,7 @@ process RAZERS3_EXTRACT {
     """
 }
 
-// 第二步：将BAM文件转换为FASTQ格式
+// Step 2: Convert BAM files to FASTQ format
 process SAMTOOLS_BAM_TO_FASTQ {
     tag "${sample_id}"
     label 'process_low'
@@ -55,15 +55,15 @@ process SAMTOOLS_BAM_TO_FASTQ {
     
     script:
     """
-    # 将BAM文件转换为FASTQ格式 - 正向读数
+    # Convert BAM file to FASTQ format - forward reads
     samtools bam2fq ${fished_bam1} > ${sample_id}_fished_1.fastq
     
-    # 将BAM文件转换为FASTQ格式 - 反向读数
+    # Convert BAM file to FASTQ format - reverse reads
     samtools bam2fq ${fished_bam2} > ${sample_id}_fished_2.fastq
     """
 }
 
-// 第三步：运行OptiType进行HLA分型
+// Run OptiType HLA typing
 process OPTITYPE_TYPING {
     tag "${sample_id}"
     label 'process_medium'
@@ -75,7 +75,7 @@ process OPTITYPE_TYPING {
     publishDir(
         path: {
             def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
-            return "${params.outdir}/${base_sample_id}/rna/09_hla_typing"
+            return "${params.outdir}/${base_sample_id}/rna/11_hla_typing"
         },
         mode: 'copy',
         saveAs: { filename ->
@@ -99,16 +99,13 @@ process OPTITYPE_TYPING {
     def coverage_pdf = "${output_dir}/${sample_id}_coverage_plot.pdf"
     
     """
-    # 检查输出是否已经存在
     if [[ -f "${result_tsv}" && -f "${coverage_pdf}" ]]; then
         echo "HLA typing results already exist for ${sample_id}, creating symlinks..."
         ln -s "${result_tsv}" "${sample_id}_result.tsv"
         ln -s "${coverage_pdf}" "${sample_id}_coverage_plot.pdf"
     else
-        # 创建临时目录以便提取结果
         mkdir -p optitype_out
         
-        # 运行OptiType算法进行HLA分型
         OptiTypePipeline.py \\
             -i ${fished_fastq1} ${fished_fastq2} \\
             -r \\
@@ -119,19 +116,17 @@ process OPTITYPE_TYPING {
     """
 }
 
-// 完整的HLA-I分型工作流
+// HLA-I workflow
 workflow HLA_I_WORKFLOW {
     take:
-    reads_ch  // 输入通道，含样本ID和配对读数
+    reads_ch  
     
     main:
-    // 1. 使用Razers3提取与HLA参考序列匹配的读数
+  
     razers3_result = RAZERS3_EXTRACT(reads_ch)
     
-    // 2. 将BAM文件转换为FASTQ格式
     samtools_result = SAMTOOLS_BAM_TO_FASTQ(razers3_result.extract_result)
     
-    // 3. 运行OptiType进行HLA分型
     optitype_result = OPTITYPE_TYPING(samtools_result.fastq_result)
     
     emit:

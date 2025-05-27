@@ -1,4 +1,4 @@
-// 添加一个专门用于创建索引的进程
+// add create index
 process BWA_INDEX {
     tag "Creating BWA index"
     label 'process_high'
@@ -13,14 +13,14 @@ process BWA_INDEX {
     
     script:
     """
-    # 获取参考基因组的实际路径
+    # Get the actual path of the reference genome
     ref_path=\$(readlink -f ${reference})
     ref_dir=\$(dirname \$ref_path)
     ref_base=\$(basename \$ref_path)
     
     cd \$ref_dir
     
-    # 检查BWA索引文件
+    # Check BWA index files
     missing_bwa_index=0
     for suffix in bwt pac ann amb sa; do
         if [[ ! -f "\${ref_base}.\${suffix}" ]]; then
@@ -29,7 +29,7 @@ process BWA_INDEX {
         fi
     done
     
-    # 如果需要创建BWA索引
+    # Create BWA index if needed
     if [[ \$missing_bwa_index -eq 1 ]]; then
         echo "Creating BWA index in \$ref_dir..."
         bwa index \$ref_base
@@ -37,7 +37,7 @@ process BWA_INDEX {
         echo "BWA index files already exist in \$ref_dir, skipping..."
     fi
     
-    # 检查GATK所需的索引文件
+    # Check GATK required index files
     if [[ ! -f "\${ref_base}.fai" ]]; then
         echo "Creating FASTA index file..."
         samtools faidx \$ref_base
@@ -47,7 +47,7 @@ process BWA_INDEX {
         echo "Creating sequence dictionary..."
     fi
     
-    # 创建工作目录中的符号链接
+    # Create symbolic links in working directory
     cd -
     for f in \${ref_dir}/\${ref_base}*; do
         ln -sf \$f ./\$(basename \$f)
@@ -55,7 +55,7 @@ process BWA_INDEX {
     """
 }
 
-// 修改 BWA 进程以使用预先创建的索引
+// Modify BWA process to use pre-created index
 process BWA {
     tag "${sample_id}"
     label 'process_medium'
@@ -65,13 +65,13 @@ process BWA {
     publishDir path: {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        // Determine data type (DNA or RNA)
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // Determine sample type (normal or tumor)
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -85,15 +85,15 @@ process BWA {
     
     input:
     tuple val(sample_id), path(clean1), path(clean2)
-    path reference  // 明确指定reference参数名
-    path '*'       // 接收其他索引文件
+    path reference  // Explicitly specify reference parameter
+    path '*'       // Receive other index files
     
     output:
     tuple val(sample_id), path("${sample_id}_cut.sam")
     
     script:
     """
-    # 输出调试信息
+    # Output debug information
     echo "===== BWA Debug Information ====="
     echo "Current directory: \$(pwd)"
     echo "Sample ID: ${sample_id}"
@@ -103,7 +103,7 @@ process BWA {
     echo "Directory contents:"
     ls -la
     
-    # 运行BWA
+    # Run BWA
     bwa mem -t ${params.bwa.threads} -R "@RG\\tID:${sample_id}\\tSM:${sample_id}\\tLB:library1\\tPL:illumina" \\
         ${reference} \\
         ${clean1} ${clean2} \\

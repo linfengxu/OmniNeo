@@ -63,7 +63,6 @@ process MERGE_FASTQ {
 process MERGE_PAIRED_FASTQ {
     tag "${sample_id}"
     label 'process_high'
-    container { "${params.parallel.container}" }
     
     publishDir {
         def data_type = ""

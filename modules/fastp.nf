@@ -3,20 +3,20 @@ process FASTP {
     tag "${sample_id}"
     label 'process_medium'
     
-    // 使用Singularity容器
+    // Use Singularity container
     container { "${params.fastp.container}" }
     
-    // 发布输出文件到结果目录，根据样本ID区分DNA/RNA和normal/tumor
+    // Publish output files to results directory, distinguish between DNA/RNA and normal/tumor based on sample ID
     publishDir {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        // Determine data type (DNA or RNA)
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // Determine sample type (normal or tumor)
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"

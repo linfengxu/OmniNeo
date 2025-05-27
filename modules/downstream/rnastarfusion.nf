@@ -1,7 +1,7 @@
 process RNA_STAR_FUSION_PEPTIDES {
     tag "$sample_id"
     label 'process_medium'
-    container "${params.snv_analysis.container}"  // 复用同样的Python容器
+    container "${params.snv_analysis.container}" 
     
     publishDir(
         path: {
@@ -46,9 +46,9 @@ process RNA_STAR_FUSION_PEPTIDES {
     """
     mkdir -p fasta csv
     
-    # 检查融合结果文件是否存在且不为空
+    # Check if fusion results file exists and is not empty
     if [ -s "${fusion_results}" ]; then
-        # 运行融合肽段分析
+        # Run fusion peptide analysis
         python ${projectDir}/bin/RNA/star_fusion.py \\
             -i ${fusion_results} \\
             -o ./ \\
@@ -57,13 +57,13 @@ process RNA_STAR_FUSION_PEPTIDES {
             --long_min ${long_min} \\
             --long_max ${long_max}
             
-        # 打印分析完成信息
+        # Print analysis completion message
         echo "RNA fusion peptide generation completed for sample ${sample_id}"
         echo "Generated fusion peptides:"
         ls -la fasta/ csv/ 2>/dev/null || true
     else
         echo "WARNING: No fusion events found or empty results file for sample ${sample_id}"
-        # 创建空文件以确保输出通道正常工作
+        # Create empty files to ensure output channels work properly
         touch fasta/${sample_id}_short_peptides.fasta
         touch fasta/${sample_id}_long_peptides.fasta
         touch csv/${sample_id}_short_peptides.csv

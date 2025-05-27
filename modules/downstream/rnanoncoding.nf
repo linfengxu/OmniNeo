@@ -1,7 +1,7 @@
 process RNA_NONCODING_ANALYSIS {
     tag "$sample_id"
     label 'process_medium'
-    container "${params.snv_analysis.container}"  // 复用同样的Python容器
+    container "${params.snv_analysis.container}"  
     
     publishDir(
         path: {
@@ -11,9 +11,9 @@ process RNA_NONCODING_ANALYSIS {
         },
         mode: 'copy',
         saveAs: { filename ->
-            if (filename.endsWith('.csv')) return "results/${filename}"
-            else if (filename.endsWith('.fasta')) return "fasta/${filename}"
-            else if (filename.endsWith('.txt')) return "txt/${filename}"
+            if (filename.endsWith('.csv')) return "${filename}"
+            else if (filename.endsWith('.fasta')) return "${filename}"
+            else if (filename.endsWith('.txt')) return "${filename}"
             else null
         }
     )
@@ -39,20 +39,18 @@ process RNA_NONCODING_ANALYSIS {
     tuple val(sample_id), 
           path("long_peptide_stats.txt"), 
           emit: noncoding_stats
-    
     script:
     """
-    # 运行RNA非编码区突变分析
+    # Run RNA noncoding region mutation analysis
     python ${projectDir}/bin/RNA/noncoding.py \\
         -i ${anno_result} \\
-        -r ${params.ref_genome_fasta} \\
+        -r ${params.hg38db} \\
         -o ./ \\
         --short_min 8 \\
         --short_max 11 \\
         --long_min 15 \\
         --long_max 30
-        
-    # 打印分析完成信息
+    # Print analysis completion message
     echo "RNA noncoding mutation analysis completed for sample ${sample_id}"
     echo "Generated output files:"
     ls -la noncoding_mutation_peptides.csv fasta/ long_peptide_stats.txt 2>/dev/null || true

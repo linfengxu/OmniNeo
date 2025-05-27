@@ -1,4 +1,4 @@
-// 添加一个用于 fixmate 的进程
+// add fixmate process
 process SAMTOOLS_FIXMATE {
     tag "${sample_id}"
     label 'process_medium'
@@ -8,13 +8,13 @@ process SAMTOOLS_FIXMATE {
     publishDir path: {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        // data type（DNA or RNA）
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // sample type（normal or tumor）
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -37,13 +37,13 @@ process SAMTOOLS_FIXMATE {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     
-    // 判断数据类型（DNA或RNA）
+    // data type（DNA or RNA）
     def data_type = "dna"
     if (sample_id.contains("_rna_")) {
         data_type = "rna"
     }
     
-    // 判断样本类型（normal或tumor）
+    // sample type（normal or tumor）
     def sample_type = "normal"
     if (sample_id.contains("_tumor")) {
         sample_type = "tumor"
@@ -62,7 +62,7 @@ process SAMTOOLS_FIXMATE {
     """
 }
 
-// 添加一个用于 sort 的进程
+
 process SAMTOOLS_SORT {
     tag "${sample_id}"
     label 'process_medium'
@@ -72,13 +72,11 @@ process SAMTOOLS_SORT {
     publishDir {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -101,13 +99,11 @@ process SAMTOOLS_SORT {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     
-    // 判断数据类型（DNA或RNA）
     def data_type = "dna"
     if (sample_id.contains("_rna_")) {
         data_type = "rna"
     }
     
-    // 判断样本类型（normal或tumor）
     def sample_type = "normal"
     if (sample_id.contains("_tumor")) {
         sample_type = "tumor"
@@ -142,13 +138,13 @@ process SAMTOOLS_INDEX {
     publishDir {
         def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
         
-        // 判断数据类型（DNA或RNA）
+        //
         def data_type = "dna"
         if (sample_id.contains("_rna_")) {
             data_type = "rna"
         }
         
-        // 判断样本类型（normal或tumor）
+        // 
         def sample_type = "normal"
         if (sample_id.contains("_tumor")) {
             sample_type = "tumor"
@@ -170,13 +166,13 @@ process SAMTOOLS_INDEX {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     
-    // 判断数据类型（DNA或RNA）
+    // 
     def data_type = "dna"
     if (sample_id.contains("_rna_")) {
         data_type = "rna"
     }
     
-    // 判断样本类型（normal或tumor）
+    // 
     def sample_type = "normal"
     if (sample_id.contains("_tumor")) {
         sample_type = "tumor"

@@ -1,7 +1,7 @@
 process FRAMESHIFT_DELETION_ANALYSIS {
     tag "$sample_id"
     label 'process_medium'
-    container "${params.snv_analysis.container}"  // 复用同样的Python容器
+    container "${params.snv_analysis.container}"  
     
     publishDir(
         path: {
@@ -22,7 +22,7 @@ process FRAMESHIFT_DELETION_ANALYSIS {
     )
     
     input:
-    tuple val(sample_id), path(anno_result)
+    tuple val(sample_id), path(anno_result_txt)
     
     output:
     tuple val(sample_id), 
@@ -52,7 +52,7 @@ process FRAMESHIFT_DELETION_ANALYSIS {
     # Run frameshift deletion analysis
     python ${projectDir}/bin/DNA/frameshift_deletion.py \\
         -r ${params.uniport_ref} \\
-        -i ${anno_result} \\
+        -i ${anno_result_txt} \\
         -o ./  \\
         -t ${params.kallisto.transcriptome_fasta} \\
         --real-translation -p -v

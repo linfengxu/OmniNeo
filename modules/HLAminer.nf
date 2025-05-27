@@ -1,6 +1,6 @@
-// HLA-II分型模块，使用HLAminer对RNA-seq样本进行肿瘤样本HLA分型
+// HLA-II typing module, using HLAminer for HLA typing of RNA-seq tumor samples
 
-// 第一步：使用BWA mem将读数比对到HLA参考序列
+// Step 1: Use BWA mem to align reads to HLA reference sequences
 process BWA_ALIGN {
     tag "${sample_id}"
     label 'process_medium'
@@ -18,16 +18,16 @@ process BWA_ALIGN {
           emit: align_result
     
     script:
-    def hla_ref_path = "/data/HLA_ABC_CDS.fasta"
+    def hla_ref_path = "/data/HLA-I_II_CDS.fasta"
     def threads = params.bwa.threads
     
     """
-    # 使用BWA mem将读数比对到HLA参考序列
+    # Use BWA mem to align reads to HLA reference sequences
     bwa mem -a -t ${threads} ${hla_ref_path} ${read1} ${read2} > ${sample_id}_vs_HLA.sam
     """
 }
 
-// 第二步：运行HLAminer进行HLA分型
+// Step 2: Run HLAminer for HLA typing
 process HLAMINER_PREDICT {
     tag "${sample_id}"
     label 'process_medium'
@@ -56,33 +56,44 @@ process HLAMINER_PREDICT {
     script:
     def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
     def output_dir = "${params.outdir}/${base_sample_id}/rna/09_hla_typingii/${sample_id}"
-    def hla_db_path = "${params.hlaminer.database}/HLA_ABC_CDS.fasta"
+    def hla_db_path = "${params.hlaminer.database}/HLA-I_II_CDS.fasta"
     def hla_p_path = "${params.hlaminer.database}/hla_nom_p.txt"
+    def log_file = "${sample_id}_HLAminer.log"
     
     """
-    # 运行HLAminer进行HLA分型
+    # Run HLAminer for HLA typing
     perl ${params.hlaminer.path}/HLAminer.pl \\
         -a ${sam_file} \\
         -h ${hla_db_path} \\
         -p ${hla_p_path} \\
-        -l ${sample_id}_HLAminer.log
+        -l ${log_file}
     
-    # 重命名输出文件以便更好地识别
-    cp HLAminer_HPRA.csv ${sample_id}_HLAminer_HPRA.csv
-    cp HLAminer_predictions.csv ${sample_id}_hla_predictions.csv
+    # Rename output files for better identification
+    cp HLAminer_HPRA_${log_file}.csv ${sample_id}_HLAminer_HPRA.csv
+    
+    # Check if .csv.pred file exists, if it exists then copy it, otherwise use .csv file as a substitute
+    if [ -f HLAminer_HPRA_${log_file}.csv.pred ]; then
+        cp HLAminer_HPRA_${log_file}.csv.pred ${sample_id}_hla_predictions.csv
+    else
+        # If .csv.pred file doesn't exist, use .csv file as a substitute
+        cp HLAminer_HPRA_${log_file}.csv ${sample_id}_hla_predictions.csv
+    fi
+    
+    # Save log file
+    cp HLAminer_HPRA_${log_file}.log ${log_file}
     """
 }
 
-// 完整的HLAminer HLA分型工作流
+// Complete HLAminer HLA typing workflow
 workflow HLAMINER_WORKFLOW {
     take:
-    reads_ch  // 输入通道，含样本ID和配对读数
+    reads_ch  // Input channel containing sample ID and paired reads
     
     main:
-    // 1. 使用BWA比对读数到HLA参考序列
+    // 1. Use BWA to align reads to HLA reference sequences
     bwa_result = BWA_ALIGN(reads_ch)
     
-    // 2. 运行HLAminer进行HLA分型
+    // 2. Run HLAminer for HLA typing
     hlaminer_result = HLAMINER_PREDICT(bwa_result.align_result)
     
     emit:

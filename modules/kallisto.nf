@@ -1,6 +1,6 @@
-// Kallisto模块，用于RNA-seq表达量定量
+// Kallisto module，用于RNA-seq表达量定量
 
-// Kallisto索引构建
+// Kallisto index create
 process KALLISTO_INDEX {
     tag "kallisto_index"
     label 'process_medium'

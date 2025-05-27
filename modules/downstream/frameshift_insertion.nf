@@ -1,7 +1,7 @@
 process FRAMESHIFT_INSERTION_ANALYSIS {
     tag "$sample_id"
     label 'process_medium'
-    container "${params.snv_analysis.container}"  // 复用同样的Python容器
+    container "${params.snv_analysis.container}"  
     
     publishDir(
         path: {
@@ -22,7 +22,7 @@ process FRAMESHIFT_INSERTION_ANALYSIS {
     )
     
     input:
-    tuple val(sample_id), path(anno_result)
+    tuple val(sample_id), path(anno_result_txt)
     
     output:
     tuple val(sample_id), 
@@ -52,7 +52,7 @@ process FRAMESHIFT_INSERTION_ANALYSIS {
     # Run frameshift insertion analysis
     python ${projectDir}/bin/DNA/frameshift_insertion.py \\
         -r ${params.uniport_ref} \\
-        -i ${anno_result} \\
+        -i ${anno_result_txt} \\
         -o ./  \\
         -t ${params.kallisto.transcriptome_fasta} \\
         --debug -p -v

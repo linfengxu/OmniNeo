@@ -1,7 +1,7 @@
 process RNA_TPM_FILTER {
     tag "$sample_id"
     label 'process_low'
-    container "${params.snv_analysis.container}"  // 复用同样的Python容器
+    container "${params.snv_analysis.container}"
     
     publishDir(
         path: {
@@ -18,7 +18,7 @@ process RNA_TPM_FILTER {
     )
     
     input:
-    tuple val(sample_id), path(kallisto_abundance)
+    tuple val(sample_id), path(kallisto_abundance), path(abundance_h5), path(run_info)
     path(gene_reference)
     tuple val(anno_sample_id), path(annovar_results)
     
@@ -31,9 +31,9 @@ process RNA_TPM_FILTER {
           emit: gene_expression
     
     script:
-    def tpm_threshold = params.rna_tpm_filter?.threshold ?: 1.0
+    def tpm_threshold = params.rna_tpm_filter ? params.rna_tpm_filter.threshold : 0
     """
-    # 运行TPM过滤分析
+    # run TPM filter analyses
     python ${projectDir}/bin/RNA/TpmFilter.py \\
         -k ${kallisto_abundance} \\
         -r ${gene_reference} \\
@@ -41,7 +41,7 @@ process RNA_TPM_FILTER {
         -o anovar_filtered_variants.tsv \\
         -t ${tpm_threshold}
         
-    # 打印分析完成信息
+    # log messgages
     echo "RNA TPM filtering completed for sample ${sample_id}"
     echo "TPM threshold used: ${tpm_threshold}"
     echo "Generated output files:"
