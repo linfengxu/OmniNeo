@@ -83,7 +83,9 @@ def tpm_filter_with_annovar(kallisto_file, ref_file, annovar_file, output_path, 
     filtered_annovar = annovar_df[annovar_df[gene_column].apply(has_gene_with_tpm_above_threshold)]
     
     # Save filtered results
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     filtered_annovar.to_csv(output_path, sep='\t', index=False)
     
     # Save gene expression file
@@ -107,7 +109,9 @@ def main():
     args = parser.parse_args()
     
     # Make sure output directory exists
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    output_dir = os.path.dirname(args.output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     
     try:
         filtered_annovar, gene_df = tpm_filter_with_annovar(
