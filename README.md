@@ -4,7 +4,7 @@
 
 ## Overview
 
-OmniNeo is an automated, multi-omics neoantigen discovery framework that integrates WGS/WES, transcriptomic, and proteomic data. Using Nextflow, it enables efficient task execution across various compute infrastructures, with Singularity containers ensuring reproducibility. The pipeline identifies potential neoantigens through comprehensive DNA and RNA analysis, HLA typing, and variant processing.
+OmniNeo is an automated, multi-omics neoantigen discovery framework that integrates WGS/WES, transcriptomic, and proteomic data. Using Nextflow, it enables efficient task execution across various compute infrastructures, with Singularity containers ensuring reproducibility. The pipeline identifies potential neoantigens through comprehensive DNA and RNA analysis, HLA typing, variant processing, and MHC binding prediction using netMHCpan.
 
 ![OmniNeo overview](img/OmniNeo.png)
 
@@ -16,6 +16,7 @@ OmniNeo is an automated, multi-omics neoantigen discovery framework that integra
    - [Nextflow](#nextflow)
    - [Singularity](#singularity)
    - [Required Software](#required-software)
+   - [netMHCpan Setup](#netmhcpan-setup)
 4. [Pipeline Configuration](#pipeline-configuration)
 5. [Usage](#usage)
    - [Sample Sheet Format](#sample-sheet-format)
@@ -25,6 +26,7 @@ OmniNeo is an automated, multi-omics neoantigen discovery framework that integra
    - [DNA Analysis](#dna-analysis)
    - [RNA Analysis](#rna-analysis)
    - [HLA Typing](#hla-typing)
+   - [Epitope Prediction](#epitope-prediction)
    - [Downstream Analysis](#downstream-analysis)
    - [MS Database Generation](#ms-database-generation)
 7. [Output Structure](#output-structure)
@@ -43,6 +45,7 @@ OmniNeo provides:
 - Comprehensive HLA typing (Class I with OptiType and Class II with HLAminer)
 - High-quality variant calling and filtration
 - Transcriptomic validation of neoantigens
+- Advanced epitope prediction using netMHCpan
 - Identification of frameshift, non-frameshift, and fusion-derived peptides
 - MS database generation for proteomics validation
 
@@ -121,9 +124,44 @@ Due to licensing restrictions, you must download and install the following softw
 
 - annovar (Variant annotation)
 - HLAminer (HLA Class II typing)
-- netmhcpan, netmhcpanii and nettcl (MHC binding)
+- netMHCpan (MHC Class I binding prediction)
+- netMHCIIpan (MHC Class II binding prediction)
+- netCTLpan (T cell epitope prediction)
 
 After installing these tools, set their paths in `nextflow.config`.
+
+### netMHCpan Setup
+
+1. **Obtain License and Software**:
+   - Request academic license from DTU Health Tech (https://services.healthtech.dtu.dk/software.php)
+   - Download netMHCpan-4.1, netMHCIIpan-4.0, and netCTLpan-1.1
+   - Follow installation instructions provided with the software
+
+2. **Installation**:
+```shell
+# Example installation steps for netMHCpan
+tar -zxvf netMHCpan-4.1.tar.gz
+cd netMHCpan-4.1
+
+# Set up required environment variables
+export NETMHCPAN=/path/to/netMHCpan-4.1
+export TMPDIR=/tmp
+export NMH_PROD=/path/to/netMHCpan-4.1/data
+export NMHOME=/path/to/netMHCpan-4.1
+
+# Add to your ~/.bashrc or ~/.bash_profile for persistence
+echo "export NETMHCPAN=/path/to/netMHCpan-4.1" >> ~/.bashrc
+echo "export TMPDIR=/tmp" >> ~/.bashrc
+echo "export NMH_PROD=/path/to/netMHCpan-4.1/data" >> ~/.bashrc
+echo "export NMHOME=/path/to/netMHCpan-4.1" >> ~/.bashrc
+source ~/.bashrc
+
+# Configure and test installation
+./configure
+./test/testAll
+```
+
+Note: netMHCpan and related tools are managed through environment variables rather than nextflow configuration. Ensure all required environment variables are properly set before running the pipeline.
 
 ## Pipeline Configuration
 
@@ -232,6 +270,35 @@ OmniNeo integrates two complementary HLA typing methods:
    - Performs HLA prediction using HLAminer
    - Identifies HLA-DRB, HLA-DQA, HLA-DQB, and other Class II alleles
 
+### Epitope Prediction
+
+The epitope prediction module uses netMHCpan suite for comprehensive MHC binding and T cell epitope prediction:
+
+1. **MHC Class I Epitope Prediction (netMHCpan)**:
+   - Predicts binding affinity for 8-11mer peptides
+   - Considers patient-specific HLA alleles
+   - Identifies strong and weak binders
+   - Generates detailed binding affinity reports
+   - Requires specific environment variables setup (NETMHCPAN, TMPDIR, NMH_PROD)
+
+2. **MHC Class II Epitope Prediction (netMHCIIpan)**:
+   - Analyzes 15mer peptides for MHC Class II binding
+   - Predicts binding to patient-specific HLA-DR, -DQ, and -DP alleles
+   - Generates comprehensive binding reports
+   - Requires specific environment variables setup (NETMHCIIPAN, TMPDIR)
+
+3. **CTL Epitope Prediction (netCTLpan)**:
+   - Integrates MHC binding, TAP transport, and C-terminal proteasomal cleavage
+   - Predicts likelihood of T cell response
+   - Provides combined score for epitope immunogenicity
+   - Requires specific environment variables setup (NETCTLPAN, TMPDIR)
+
+4. **Integration and Filtering**:
+   - Combines predictions from all three tools
+   - Filters based on configurable thresholds
+   - Ranks epitopes by predicted immunogenicity
+   - Integrates with expression data for refined prediction
+
 ### Downstream Analysis
 
 Downstream analysis processes identified variants to predict potential neoantigens:
@@ -269,7 +336,7 @@ The MS Database generation module combines peptides from multiple sources into a
 
 ## Output Structure
 
-The pipeline generates output in the following structure:
+The pipeline generates output in the following structure (note: exact structure may vary depending on input data and enabled modules):
 
 ```
 <outdir>/
@@ -279,22 +346,39 @@ The pipeline generates output in the following structure:
 │   │   ├── 02_bwa/                    # Alignment results
 │   │   ├── 03_samtools/               # Sorted and indexed BAM files
 │   │   ├── 04_gatk/                   # Variant preprocessing
-│   │   ├── 06_mutect2/                # Somatic variant calling
-│   │   ├── 07_annovar/                # Variant annotation
-│   │   └── 08_integrated/             # Integrated DNA peptide results
-│   │
+│   │   ├── 05_mutect2/                # Somatic variant calling
+│   │   ├── 06_annovar/                # Variant annotation
+│   │   ├── ...                        # Additional analysis steps may vary
+│   │  
+│   │    
 │   ├── rna/
 │   │   ├── 01_fastp/                  # RNA quality control
 │   │   ├── 02_bwa/                    # RNA alignment results
 │   │   ├── 03_star_fusion/            # Fusion detection
+│   │   ├── 04_gatk/                   # Variant preprocessing
 │   │   ├── 05_kallisto/               # Transcript quantification
-│   │   ├── 09_hla_typing/             # HLA Class I typing results
-│   │   ├── 09_hla_typingii/           # HLA Class II typing results
-│   │   └── 10_integrated/             # Integrated RNA peptide results
+│   │   ├── ...                        # Additional RNA analysis steps may vary
+│   │   ├── 07_hla_typing/             # HLA Class I typing results
+│   │   ├── 08_hla_typingii/           # HLA Class II typing results
+│   │   
 │   │
-│   └── MS_Database/                   # Combined MS database for proteomics
-│       ├── <sample_id>_combined_ms_database.fasta
-│       └── <sample_id>_ms_database_stats.txt
+│   ├── epitope_prediction/
+│   │   ├── netmhcpan/                 # MHC Class I binding predictions
+│   │   │   ├── ...                    # Additional analysis outputs
+│   │   │   
+│   │   ├── netmhciipan/               # MHC Class II binding predictions
+│   │   │   ├── ...                    # Additional analysis outputs
+│   │   │   
+│   │   ├── netctlpan/                 # CTL epitope predictions
+│   │   │   ├── ...                    # Additional analysis outputs
+│   │   │   
+│   │   
+│   │
+│   ├── MS_Database/                   # Combined MS database for proteomics
+│   │   ├── <sample_id>_combined_ms_database.fasta
+│   │   └── <sample_id>_ms_database_stats.txt
+│   │
+│   └── ...                           # Additional analysis directories may be present
 │
 ├── reports/                           # Workflow execution reports
 │   ├── execution_report.html
