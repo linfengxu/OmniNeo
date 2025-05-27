@@ -24,7 +24,7 @@ process MERGE_FASTA_FILES {
     )
     
     input:
-    tuple val(sample_id), path('input_fastas/*')
+    tuple val(sample_id), path(fasta_files)  // modify input declaration
     
     output:
     tuple val(sample_id), path("merged_peptides.fasta"), emit: merged_fasta
@@ -38,7 +38,11 @@ process MERGE_FASTA_FILES {
     echo "" >> merged_peptides.fasta
     
     # Concatenate all fasta files
-    cat input_fastas/* >> merged_peptides.fasta
+    for f in ${fasta_files}; do
+        if [ -f "\$f" ]; then
+            cat "\$f" >> merged_peptides.fasta
+        fi
+    done
     
     # Report the number of sequences merged
     echo "Merged \$(grep -c "^>" merged_peptides.fasta) peptide sequences into one file"
@@ -69,7 +73,11 @@ workflow DNA_DOWNSTREAM {
         .mix(STOPLOSS_MUTATION_ANALYSIS.out.stoploss_fasta_files)
 
     // Group all fasta files by sample_id for merging
-    ch_fasta_by_sample = ch_peptides_fasta.groupTuple()
+    ch_fasta_by_sample = ch_peptides_fasta
+        .groupTuple()
+        .map { sample_id, files -> 
+            tuple(sample_id, files.flatten()) 
+        }
     
     // Merge all fasta files into one large file
     MERGE_FASTA_FILES(ch_fasta_by_sample)
@@ -87,7 +95,7 @@ workflow DNA_DOWNSTREAM {
     merged_fasta = MERGE_FASTA_FILES.out.merged_fasta
     gene_summaries = ch_gene_summaries
     
-    // 单独emit每个分析类型的输出通道，而不是整个输出对象
+    // emit each analysis type output channel, not the entire output object
     // Frameshift Deletion outputs
     fsdel_fasta_files = FRAMESHIFT_DELETION_ANALYSIS.out.fsdel_fasta_files
     fsdel_csv_files = FRAMESHIFT_DELETION_ANALYSIS.out.fsdel_csv_files

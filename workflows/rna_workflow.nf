@@ -1,8 +1,8 @@
 #!/usr/bin/env nextflow
 
-// RNA-Seq分析工作流
+// RNA-Seq analysis workflow
 
-// 导入模块
+// import modules
 // MERGE_READS
 include { MERGE_READS } from '../modules/process_merge'
 // FASTP
@@ -39,34 +39,34 @@ include { HLAMINER_WORKFLOW } from '../modules/HLAminer'
 
 workflow RNA_WORKFLOW {
     take:
-    raw_samples_ch  // 原始样本通道 [sample_id, dna_normal_r1, dna_normal_r2, dna_tumor_r1, dna_tumor_r2, rna_normal_r1, rna_normal_r2, rna_tumor_r1, rna_tumor_r2]
-    reference_file  // 参考基因组文件
+    raw_samples_ch  // original sample channel [sample_id, dna_normal_r1, dna_normal_r2, dna_tumor_r1, dna_tumor_r2, rna_normal_r1, rna_normal_r2, rna_tumor_r1, rna_tumor_r2]
+    reference_file  // reference genome file
 
     main:
-    // 准备仅包含RNA数据的输入通道
+    // prepare input channel only containing RNA data
     rna_samples_ch = raw_samples_ch.map { id, dn_r1, dn_r2, dt_r1, dt_r2, rn_r1, rn_r2, rt_r1, rt_r2 ->
-        // 将空字符串替换为null，以便process_merge正确处理
+        // replace empty strings with null to ensure process_merge handles them correctly
         def nullify = { str -> str == '' ? null : str }
         tuple(id, 
-              null, null, null, null,  // DNA数据设置为null
-              nullify(rn_r1), nullify(rn_r2), nullify(rt_r1), nullify(rt_r2)) // RNA数据
+              null, null, null, null,  // DNA data set to null
+              nullify(rn_r1), nullify(rn_r2), nullify(rt_r1), nullify(rt_r2)) // RNA data
     }
-    
-    // 首先使用 MERGE_READS 模块合并所有分割文件，但仅处理RNA数据
+
+    // first use MERGE_READS module to merge all split files, but only process RNA data
     merged_reads = MERGE_READS(rna_samples_ch)
     
-    // 从合并后的读数中提取 RNA 数据
+    // extract RNA data from merged reads
     rna_normal_reads = merged_reads.rna_normal_paired
     rna_tumor_reads = merged_reads.rna_tumor_paired
     
-    // 准备用于 FASTP 的拆分样本通道
+    // prepare input channel for FASTP to split samples
     rna_split_samples = rna_normal_reads
         .map { id, r1, r2 -> tuple("${id}_rna_normal", r1, r2) }
         .mix(
             rna_tumor_reads.map { id, r1, r2 -> tuple("${id}_rna_tumor", r1, r2) }
         )
     
-    // 准备用于配对分析的样本通道
+    // prepare input channel for paired analysis
     rna_paired_samples = rna_normal_reads
         .map { id, r1, r2 -> tuple(id, ['normal': [r1, r2]]) }
         .join(
@@ -74,82 +74,81 @@ workflow RNA_WORKFLOW {
         )
         .map { id, normal, tumor -> tuple(id, normal + tumor) }
     
-    // 调用 FASTP 模块处理原始读数
+    // call FASTP module to process original reads
     fastp_result = FASTP(rna_split_samples)
     
-    // 提取 FASTP 模块中经过质控后的配对读数通道
+    // extract paired reads channel after quality control from FASTP module
     cleaned_reads_ch = fastp_result.cleaned_reads
     
-    // 为RNA肿瘤样本运行HLA-I分型 - 仅处理肿瘤样本
+    // run HLA-I typing for RNA tumor samples - only process tumor samples
     rna_tumor_for_hla = cleaned_reads_ch
         .filter { sample_id, r1, r2 -> sample_id.toString().contains('_rna_tumor') }
     
-    // 运行HLA-I分型工作流
+    // run HLA-I typing workflow
     hla_typing_results = HLA_I_WORKFLOW(rna_tumor_for_hla)
     
-    // 运行HLA-II分型工作流 (HLAminer) - 同样只处理肿瘤样本
+    // run HLA-II typing workflow (HLAminer) - also only process tumor samples
     hlaminer_typing_results = HLAMINER_WORKFLOW(rna_tumor_for_hla)
     
-    // 为RNA肿瘤样本运行STAR-Fusion
-    // 仅选择肿瘤样本进行融合检测
+    // run STAR-Fusion for RNA tumor samples - only process tumor samples
     rna_tumor_cleaned_reads = cleaned_reads_ch
         .filter { sample_id, r1, r2 -> sample_id.toString().contains('_rna_tumor') }
     
-    // 运行STAR-Fusion
+    // run STAR-Fusion
     star_fusion_results = STAR_FUSION(rna_tumor_cleaned_reads)
     
-    // 运行Kallisto表达量定量
-    // 1. 构建Kallisto索引
+    // run Kallisto expression quantification
+    // 1. build Kallisto index
     transcriptome_fasta = file(params.kallisto.transcriptome_fasta)
     kallisto_index_result = KALLISTO_INDEX(transcriptome_fasta)
     
-    // 2. 对RNA样本进行定量
+    // 2. quantify RNA samples
     kallisto_quant_results = KALLISTO_QUANT(
         cleaned_reads_ch,
         kallisto_index_result.kallisto_index
     )
     
-    // 创建 BWA 索引
+    // create BWA index
     bwa_index_result = BWA_INDEX(reference_file)
 
-    // 将 FASTP 的输出和参考基因组及索引文件传递给 BWA 模块做比对
+    // pass the output of FASTP and the reference genome and index file to the BWA module for alignment
     bwa_result = BWA(
-        cleaned_reads_ch,        // 清洗后的reads
-        reference_file,          // 参考基因组文件
-        bwa_index_result.index   // 索引文件
+        cleaned_reads_ch,        // cleaned reads
+        reference_file,          // reference genome file
+        bwa_index_result.index   // index file
     )
 
-    // 将 BWA 输出的对齐结果传递给 SAMTOOLS_FIXMATE 进程
+    // pass the output of BWA and the reference genome and index file to the SAMTOOLS_FIXMATE module
     fixmate_result = SAMTOOLS_FIXMATE(bwa_result)
 
-    // 将 SAMTOOLS_FIXMATE 输出的结果传递给 SAMTOOLS_SORT 进程
+    // pass the output of SAMTOOLS_FIXMATE and the reference genome and index file to the SAMTOOLS_SORT module
     sort_result = SAMTOOLS_SORT(fixmate_result)
     
-    // 将排序后的 BAM 文件传递给 GATK MarkDuplicates 进程
+    // pass the output of SAMTOOLS_SORT and the reference genome and index file to the GATK_MARKDUPLICATES module
     markdup_result = GATK_MARKDUPLICATES(sort_result)
     
-    // 将标记重复后的 BAM 文件传递给 GATK AddOrReplaceReadGroups 进程
+    // pass the output of GATK_MARKDUPLICATES and the reference genome and index file to the GATK_ADD_OR_REPLACE_READ_GROUPS module
     readgroups_result = GATK_ADD_OR_REPLACE_READ_GROUPS(markdup_result.marked_bam)
     
-    // 将添加读组后的 BAM 文件传递给 GATK BaseRecalibrator 进程
+    // pass the output of GATK_ADD_OR_REPLACE_READ_GROUPS and the reference genome and index file to the GATK_BASE_RECALIBRATOR module
     recal_result = GATK_BASE_RECALIBRATOR(
         readgroups_result.bam_with_read_groups,
         reference_file
     )
     
-    // 将重校准数据和BAM文件传递给 GATK ApplyBQSR 进程
+    // pass the output of GATK_BASE_RECALIBRATOR and the reference genome and index file to the GATK_APPLY_BQSR module
     bqsr_result = GATK_APPLY_BQSR(
         readgroups_result.bam_with_read_groups.join(recal_result.recal_table),
         reference_file
     )
     
-    // 将重校准后的BAM文件传递给 Picard AddOrReplaceReadGroups 进程
+    // pass the output of GATK_BASE_RECALIBRATOR and the reference genome and index file to the PICARD_ADD_OR_REPLACE_READ_GROUPS module
     picard_result = PICARD_ADD_OR_REPLACE_READ_GROUPS(bqsr_result.recalibrated_bam)
     
-    // 为最终的BAM文件创建索引
+    // create index for final BAM file
     index_result = SAMTOOLS_INDEX(picard_result.final_bam)
     
-    // 将最终的BAM文件和索引文件组合在一起
+    // combine final BAM file and index file
     final_bams_with_index = picard_result.final_bam
         .map { sample_id, bam -> tuple(sample_id, bam) }
         .join(index_result.indexed_bam
@@ -157,20 +156,20 @@ workflow RNA_WORKFLOW {
         )
         .map { sample_id, bam, bai -> tuple(sample_id, bam, bai) }
     
-    // 将最终的BAM文件分为normal和tumor通道
+    // split final BAM file into normal and tumor channels
     final_bams_normal = final_bams_with_index
         .filter { it[0].toString().endsWith('_rna_normal') }
     
     final_bams_tumor = final_bams_with_index
         .filter { it[0].toString().endsWith('_rna_tumor') }
     
-    // 对normal样本运行Mutect2
+    // run Mutect2 for normal samples
     normal_vcf = GATK_MUTECT2_NORMAL(
         final_bams_normal,
         reference_file
     )
     
-    // 准备配对分析的输入数据
+    // prepare input data for paired analysis
     paired_input = final_bams_tumor
         .map { tumor_id, tumor_bam, tumor_bai -> 
             def base_id = tumor_id.replaceAll('_rna_tumor$', '')
@@ -197,35 +196,35 @@ workflow RNA_WORKFLOW {
                   vcf, idx)
         }
     
-    // 运行配对样本分析
+    // run paired sample analysis
     paired_vcf = GATK_MUTECT2_PAIRED(
         paired_input,
         reference_file
     )
     
-    // 过滤突变结果
+    // filter mutation results
     filtered_vcf = GATK_FILTER_MUTECT_CALLS(
         paired_vcf.paired_vcf,
         reference_file
     )
     
-    // 使用bcftools进一步过滤PASS的变异
+    // further filter PASS mutation results using bcftools
     pass_filtered_vcf = BCFTOOLS_FILTER_PASS(
         filtered_vcf.filtered_vcf
     )
     
-    // 使用 ANOVAR 注释 PASS 过滤后的变异
+    // annotate PASS filtered mutation results using ANOVAR
     anovar_results = ANNOVAR(
         pass_filtered_vcf
     )
     
  
-    // 输出结果
+    // output results
     emit:
-    fusion_results = star_fusion_results.fusion_results  // 确保通道名称正确
+    fusion_results = star_fusion_results.fusion_results  // ensure channel name is correct
     kallisto_abundance = kallisto_quant_results.quant_results
     hla_results = hla_typing_results.hla_results
-    hla2_results = hlaminer_typing_results.hla_results  // HLA-II分型结果
+    hla2_results = hlaminer_typing_results.hla_results  // HLA-II typing results
     annotation_results = anovar_results.anovar_txt
     annotation_vcf = anovar_results.anovar_vcf
 }

@@ -10,7 +10,13 @@ include { RNA_DOWNSTREAM } from './rna_downstream'
 process COMBINE_MS_DATABASE {
     tag "${sample_id}"
     label 'process_medium'
-    publishDir "${params.outdir}/${sample_id}/ms_database", mode: 'copy'
+    publishDir(
+        path: { 
+            def base_sample_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
+            return "${params.outdir}/${base_sample_id}/ms_database" 
+        },
+        mode: 'copy'
+    )
     
     input:
     tuple val(sample_id), path(dna_merged_fasta)
@@ -21,6 +27,7 @@ process COMBINE_MS_DATABASE {
     
     output:
     tuple val(sample_id), path("${sample_id}_combined_ms_database.fasta"), emit: combined_ms_db
+    tuple val(sample_id), path("${sample_id}_clean_ms_database.fasta"), emit: clean_ms_db
     path "${sample_id}_database_stats.txt", emit: database_stats
     
     script:
@@ -44,24 +51,35 @@ process COMBINE_MS_DATABASE {
         echo "" >> ${sample_id}_combined_ms_database.fasta
     fi
     
-    # Add RNA short peptides
-    if [ -s "${rna_short_peptides}" ]; then
-        echo "# === RNA SHORT PEPTIDES ===" >> ${sample_id}_combined_ms_database.fasta
-        cat ${rna_short_peptides} >> ${sample_id}_combined_ms_database.fasta
-        echo "" >> ${sample_id}_combined_ms_database.fasta
+    # Add RNA peptides
+    echo "# === RNA PEPTIDES ===" >> ${sample_id}_combined_ms_database.fasta
+    
+    # Add RNA short peptides (both fusion and noncoding)
+    echo "# --- RNA SHORT PEPTIDES ---" >> ${sample_id}_combined_ms_database.fasta
+    if [ -n "\$(ls -A ${rna_short_peptides} 2>/dev/null)" ]; then
+        for file in ${rna_short_peptides}; do
+            if [ -s "\$file" ]; then
+                echo "# Adding file: \$(basename "\$file")" >> ${sample_id}_combined_ms_database.fasta
+                cat "\$file" >> ${sample_id}_combined_ms_database.fasta
+                echo "" >> ${sample_id}_combined_ms_database.fasta
+            fi
+        done
     else
-        echo "# === NO RNA SHORT PEPTIDES AVAILABLE ===" >> ${sample_id}_combined_ms_database.fasta
-        echo "" >> ${sample_id}_combined_ms_database.fasta
+        echo "# No RNA short peptides found" >> ${sample_id}_combined_ms_database.fasta
     fi
     
-    # Add RNA long peptides
-    if [ -s "${rna_long_peptides}" ]; then
-        echo "# === RNA LONG PEPTIDES ===" >> ${sample_id}_combined_ms_database.fasta
-        cat ${rna_long_peptides} >> ${sample_id}_combined_ms_database.fasta
-        echo "" >> ${sample_id}_combined_ms_database.fasta
+    # Add RNA long peptides (both fusion and noncoding)
+    echo "# --- RNA LONG PEPTIDES ---" >> ${sample_id}_combined_ms_database.fasta
+    if [ -n "\$(ls -A ${rna_long_peptides} 2>/dev/null)" ]; then
+        for file in ${rna_long_peptides}; do
+            if [ -s "\$file" ]; then
+                echo "# Adding file: \$(basename "\$file")" >> ${sample_id}_combined_ms_database.fasta
+                cat "\$file" >> ${sample_id}_combined_ms_database.fasta
+                echo "" >> ${sample_id}_combined_ms_database.fasta
+            fi
+        done
     else
-        echo "# === NO RNA LONG PEPTIDES AVAILABLE ===" >> ${sample_id}_combined_ms_database.fasta
-        echo "" >> ${sample_id}_combined_ms_database.fasta
+        echo "# No RNA long peptides found" >> ${sample_id}_combined_ms_database.fasta
     fi
     
     # Add reference databases
@@ -72,16 +90,48 @@ process COMBINE_MS_DATABASE {
     echo "# === CONTAMINANTS DATABASE (cRAP) ===" >> ${sample_id}_combined_ms_database.fasta
     cat ${crap_fasta} >> ${sample_id}_combined_ms_database.fasta
     
+    # Generate clean FASTA without comments
+    grep -v "^\\#" ${sample_id}_combined_ms_database.fasta | grep -v "^\$" > ${sample_id}_temp_clean_ms_database.fasta
+    
+    # Use reformat_fasta.py script to reformat the FASTA headers for MaxQuant compatibility
+    python ${projectDir}/bin/reformat_fasta.py ${sample_id}_temp_clean_ms_database.fasta ${sample_id}_clean_ms_database.fasta
+    rm ${sample_id}_temp_clean_ms_database.fasta
+    
     # Generate statistics
     echo "Database Statistics for ${sample_id}" > ${sample_id}_database_stats.txt
     echo "-------------------------------------" >> ${sample_id}_database_stats.txt
     echo "Total entries: \$(grep -c "^>" ${sample_id}_combined_ms_database.fasta)" >> ${sample_id}_database_stats.txt
     echo "DNA mutation peptides: \$(grep -c "^>" ${dna_merged_fasta} 2>/dev/null || echo 0)" >> ${sample_id}_database_stats.txt
-    echo "RNA short peptides: \$(grep -c "^>" ${rna_short_peptides} 2>/dev/null || echo 0)" >> ${sample_id}_database_stats.txt
-    echo "RNA long peptides: \$(grep -c "^>" ${rna_long_peptides} 2>/dev/null || echo 0)" >> ${sample_id}_database_stats.txt
+    
+    # Count RNA peptides
+    echo "RNA peptides:" >> ${sample_id}_database_stats.txt
+    echo "--- Short peptides:" >> ${sample_id}_database_stats.txt
+    short_count=0
+    for file in ${rna_short_peptides}; do
+        if [ -s "\$file" ]; then
+            count=\$(grep -c "^>" "\$file" 2>/dev/null || echo 0)
+            short_count=\$((short_count + count))
+            echo "  \$(basename "\$file"): \$count" >> ${sample_id}_database_stats.txt
+        fi
+    done
+    echo "  Total short peptides: \$short_count" >> ${sample_id}_database_stats.txt
+    
+    echo "--- Long peptides:" >> ${sample_id}_database_stats.txt
+    long_count=0
+    for file in ${rna_long_peptides}; do
+        if [ -s "\$file" ]; then
+            count=\$(grep -c "^>" "\$file" 2>/dev/null || echo 0)
+            long_count=\$((long_count + count))
+            echo "  \$(basename "\$file"): \$count" >> ${sample_id}_database_stats.txt
+        fi
+    done
+    echo "  Total long peptides: \$long_count" >> ${sample_id}_database_stats.txt
+    echo "  Total RNA peptides: \$((short_count + long_count))" >> ${sample_id}_database_stats.txt
+    
     echo "UniProt reference: \$(grep -c "^>" ${uniprot_fasta})" >> ${sample_id}_database_stats.txt 
     echo "Contaminants: \$(grep -c "^>" ${crap_fasta})" >> ${sample_id}_database_stats.txt
     echo "File size: \$(du -h ${sample_id}_combined_ms_database.fasta | cut -f1)" >> ${sample_id}_database_stats.txt
+    echo "Clean file size: \$(du -h ${sample_id}_clean_ms_database.fasta | cut -f1)" >> ${sample_id}_database_stats.txt
     echo "Created: \$(date)" >> ${sample_id}_database_stats.txt
     
     # Log completion
@@ -92,52 +142,35 @@ process COMBINE_MS_DATABASE {
 // Main workflow
 workflow COMBINE_MS {
     take:
-    dna_merged_fasta        // Channel: [ val(sample_id), path(merged_fasta) ]
+    dna_merged_fasta 
     rna_short_peptides      // Channel: [ val(sample_id), path(short_peptides) ]
     rna_long_peptides       // Channel: [ val(sample_id), path(long_peptides) ]
     uniprot_fasta           // Path: reference proteome from UniProt
     crap_fasta              // Path: contaminants database
     
     main:
+    // Add debug logging
+    log.info "Starting COMBINE_MS workflow"
+    log.info "DNA merged fasta: ${dna_merged_fasta}"
+    log.info "RNA short peptides: ${rna_short_peptides}"
+    log.info "RNA long peptides: ${rna_long_peptides}"
+    
     // Prepare reference databases
     ch_uniprot_fasta = file(uniprot_fasta)
     ch_crap_fasta = file(crap_fasta)
     
-    // Combine all input into one channel for processing - transform to match expected input types
-    // First join the DNA and RNA channels by sample_id
-    combined_input = dna_merged_fasta
-        .join(rna_short_peptides, failOnMismatch: false, remainder: true)
-        .join(rna_long_peptides, failOnMismatch: false, remainder: true)
-        .map { items ->
-            def sample_id = items[0]
-            def dna_fasta = items.size() > 1 ? items[1] : file('empty.fa')
-            def rna_short = items.size() > 2 ? items[2] : file('empty.fa')
-            def rna_long = items.size() > 3 ? items[3] : file('empty.fa')
-            
-            return [
-                tuple(sample_id, dna_fasta),
-                tuple(sample_id, rna_short),
-                tuple(sample_id, rna_long)
-            ]
-        }
-        .transpose()  // Get each tuple separately
-        .branch {
-            dna: it[1].name.contains('merged') || it[1].name == 'empty.fa'
-            rna_short: it[1].name.contains('short') || it[1].name == 'empty.fa'
-            rna_long: it[1].name.contains('long') || it[1].name == 'empty.fa'
-        }
-    
-    // Build the MS database with correctly structured inputs
+    // Build the MS database directly with the input channels
     combined_ms_database = COMBINE_MS_DATABASE(
-        combined_input.dna,
-        combined_input.rna_short,
-        combined_input.rna_long,
+        dna_merged_fasta,
+        rna_short_peptides,
+        rna_long_peptides,
         ch_uniprot_fasta,
         ch_crap_fasta
     )
     
     emit:
     combined_ms_db = combined_ms_database.combined_ms_db
+    clean_ms_db = combined_ms_database.clean_ms_db
     database_stats = combined_ms_database.database_stats
 }
 
@@ -158,7 +191,10 @@ workflow {
         .map { file -> tuple(file.baseName, file) }
     
     ch_star_fusion = Channel.fromPath(params.rna.star_fusion_results, checkIfExists: true)
-        .map { file -> tuple(file.baseName, file) }
+        .map { sample_id, file1, file2, file3 -> 
+            def base_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
+            return [base_id, file1, file2, file3] 
+        }
     
     // Empty channels for optional RNA fusion peptides
     ch_fusion_long = Channel.empty()

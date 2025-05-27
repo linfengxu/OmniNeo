@@ -1,85 +1,118 @@
 #!/usr/bin/env nextflow
 
-// RNA分析的下游分析工作流，处理注释结果和kallisto定量结果，进行后续表达过滤和肽段生成
+// downstream analysis workflow for RNA analysis, process annotated results and kallisto quantification results, perform subsequent expression filtering and peptide generation
 
-// 导入模块
+// import modules
 include { RNA_TPM_FILTER } from '../modules/downstream/rnatpmfilter'
 include { RNA_NONCODING_ANALYSIS } from '../modules/downstream/rnanoncoding'
 include { RNA_STAR_FUSION_PEPTIDES } from '../modules/downstream/rnastarfusion'
 
 workflow RNA_DOWNSTREAM {
     take:
-    annovar_results         // ANNOVAR的RNA突变注释结果 [sample_id, annovar_txt]
-    kallisto_abundance      // Kallisto定量结果 [sample_id, abundance_tsv]
-    star_fusion_results     // STAR-Fusion结果 [sample_id, fusion_results]
+    annovar_results         // RNA mutation annotation results from ANNOVAR [sample_id, annovar_txt]
+    kallisto_abundance      // Kallisto quantification results [sample_id, abundance_tsv]
+    star_fusion_results     // STAR-Fusion results [sample_id, fusion_results]
     
     main:
-    // 步骤1: 基于基因表达值进行RNA变异过滤
-    // 需要转录本-基因映射文件 - 使用配置文件中已定义的路径
+    // step 1: filter RNA mutations based on gene expression values
+    // need transcript-gene mapping file - use the path defined in the configuration file
     gene_ref_file = file(params.kallisto.gene_transcript_map)
     
-    // 应用TPM过滤
+    // apply TPM filtering
     tpm_filtered_results = RNA_TPM_FILTER(
         kallisto_abundance,
         gene_ref_file,
         annovar_results
     )
     
-    // 步骤2: 对过滤后的变异进行非编码区突变分析
+    // step 2: analyze noncoding mutations
     noncoding_results = RNA_NONCODING_ANALYSIS(
         tpm_filtered_results.filtered_variants
     )
     
-    // 步骤3: 生成融合肽段
-    // 检查star_fusion_results是否为空
+    // normalize noncoding results
+    noncoding_short_normalized = noncoding_results.noncoding_short_peptides
+        .map { sample_id, file -> 
+            def base_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
+            return [base_id, file] 
+        }
+     noncoding_long_normalized = noncoding_results.noncoding_long_peptides
+        .map { sample_id, file -> 
+            def base_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
+            return [base_id, file] 
+        }
+    // step 3: generate fusion peptides
+    // check if star_fusion_results is empty
     star_fusion_results_exists = star_fusion_results
-        .map { it -> return it }
+        .map { sample_id, file1,file2,file3 -> 
+            def base_id = sample_id.replaceAll('_(dna|rna)_(normal|tumor)$', '')
+            return [base_id, file3] 
+        }
         .ifEmpty { log.warn("No STAR-Fusion results provided, skipping fusion peptide generation"); return Channel.empty() }
     
-    // 仅当存在融合结果时运行肽段生成过程
+    // run peptide generation process only when fusion results exist
     fusion_results = RNA_STAR_FUSION_PEPTIDES(
         star_fusion_results_exists
     )
     
-    // 准备空通道，以确保即使没有融合结果，输出通道也能正常工作
+    // prepare empty channels to ensure output channels work even when no fusion results exist
     empty_fusion_short = Channel.empty()
     empty_fusion_long = Channel.empty()
     empty_fusion_short_csv = Channel.empty()
     empty_fusion_long_csv = Channel.empty()
     
-    // 合并实际结果与空通道
+    // merge actual results with empty channels
     fusion_short_peptides = fusion_results.fusion_short_peptides.ifEmpty { empty_fusion_short }
     fusion_long_peptides = fusion_results.fusion_long_peptides.ifEmpty { empty_fusion_long }
     fusion_short_csv = fusion_results.fusion_short_csv.ifEmpty { empty_fusion_short_csv }
     fusion_long_csv = fusion_results.fusion_long_csv.ifEmpty { empty_fusion_long_csv }
     
-    // 整合所有结果
+    // integrate all results
     
     emit:
-    // TPM过滤结果
+    // TPM filtering results
     filtered_variants = tpm_filtered_results.filtered_variants
     gene_expression = tpm_filtered_results.gene_expression
     
-    // 非编码区肽段
-    noncoding_peptides_csv = noncoding_results.noncoding_peptides_csv
-    noncoding_short_peptides = noncoding_results.noncoding_short_peptides
-    noncoding_long_peptides = noncoding_results.noncoding_long_peptides
-    noncoding_ms_peptides = noncoding_results.noncoding_ms_peptides
-    noncoding_stats = noncoding_results.noncoding_stats
-    
-    // 融合肽段
+    // fusion peptides
     fusion_short_peptides = fusion_short_peptides
     fusion_long_peptides = fusion_long_peptides
-    fusion_short_csv = fusion_short_csv
-    fusion_long_csv = fusion_long_csv
     
-    // MS分析需要的肽段通道
-    noncoding_peptides = noncoding_results.noncoding_ms_peptides  // 非编码区肽段用于质谱分析
-    fusion_peptides = fusion_long_peptides                        // 融合长肽段用于质谱分析
+    // peptide channels for MS analysis
+    all_short_peptides = noncoding_short_normalized
+        .map { id, files -> [id, [source: 'noncoding', files: files]] }
+        .mix(
+            fusion_short_peptides.map { id, files -> [id, [source: 'fusion', files: files]] }
+        )
+        .groupTuple()
+        .map { id, data_list ->
+            def all_files = []
+            data_list.each { item ->
+                if (item.files instanceof List) {
+                    all_files.addAll(item.files)
+                } else {
+                    all_files.add(item.files)
+                }
+            }
+            return tuple(id, all_files)
+        }
     
-    // 所有肽段的集合（可用于后续整合分析）
-    all_short_peptides = noncoding_results.noncoding_short_peptides
-        .mix(fusion_short_peptides)
-    all_long_peptides = noncoding_results.noncoding_long_peptides
-        .mix(fusion_long_peptides)
+    all_long_peptides = noncoding_long_normalized
+        .map { id, files -> [id, [source: 'noncoding', files: files]] }
+        .mix(
+            fusion_long_peptides.map { id, files -> [id, [source: 'fusion', files: files]] }
+        )
+        .groupTuple()
+        .map { id, data_list ->
+            def all_files = []
+            data_list.each { item ->
+                if (item.files instanceof List) {
+                    all_files.addAll(item.files)
+                } else {
+                    all_files.add(item.files)
+                }
+            }
+            return tuple(id, all_files)
+        }
+        .ifEmpty { log.warn "No RNA long peptides found"; return Channel.empty() }
 }
