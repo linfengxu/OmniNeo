@@ -401,3 +401,10 @@ For detailed error analysis, check:
 - The main Nextflow log (`.nextflow.log`)
 - Process-specific logs in the work directory
 - Output reports in the `reports/` directory
+
+## Singularity Containers
+
+All required Singularity container images are available for download from our Zenodo repository:
+[https://zenodo.org/records/15340824](https://zenodo.org/records/15340824)
+
+After downloading, place the container images in your designated Singularity images directory and update the container paths in your configuration file accordingly.
