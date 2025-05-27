@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-// 定义帮助信息
+// define help information
 def helpMessage() {
     log.info"""
     =============================================================================================
@@ -68,6 +68,7 @@ def helpMessage() {
       --skip_rna              Skip RNA analysis workflow
       --skip_combine_ms       Skip combining peptides for MS analysis
       --skip_maxquant         Skip MaxQuant analysis
+      --skip_netmhcpan        Skip netMHCpan analysis
 
     Sample Sheet Format (TSV):
     sampleID  DNANormalReads1  DNANormalReads2  DNATumorReads1  DNATumorReads2  RNANormalReads1  RNANormalReads2  RNATumorReads1  RNATumorReads2  MSTumor
@@ -86,25 +87,26 @@ def helpMessage() {
     nextflow run main.nf -profile singularity
     
     Pipeline Info:
-    For more information and bug reports, please visit: https://github.com/yourusername/pipeline
+    For more information and bug reports, please visit: https://github.com/linfengxu/OmniNeo
     """
 }
 
-// 解析命令行参数
-// 仅设置必要的控制参数
+// parse command line parameters
+// only set necessary control parameters
 params.help = false
 params.skip_dna = false
 params.skip_rna = false
 params.skip_combine_ms = false
 params.skip_maxquant = false
+params.skip_netmhcpan = false
 
-// 显示帮助信息
+// display help information
 if (params.help) {
     helpMessage()
     exit 0
 }
 
-// 检查必要参数
+// check necessary parameters
 if (!params.samplesheet) {
     log.error "Error: Sample sheet file not specified, please use the --samplesheet option"
     exit 1
@@ -115,7 +117,7 @@ if (!params.hg38db) {
     exit 1
 }
 
-// 打印工作流启动信息
+// print workflow startup information
 log.info """
 =============================================================================================
                                 OmniNeo PIPELINE v1.0
@@ -132,19 +134,21 @@ Skip DNA Analysis: ${params.skip_dna}
 Skip RNA Analysis: ${params.skip_rna}
 Skip MS Database Creation: ${params.skip_combine_ms}
 Skip MaxQuant Analysis: ${params.skip_maxquant}
+Skip netMHCpan Analysis: ${params.skip_netmhcpan}
 """
 
-// 导入子工作流
+// import sub workflows
 include { DNA_WORKFLOW } from './workflows/dna_workflow'
 include { RNA_WORKFLOW } from './workflows/rna_workflow'
 include { DNA_DOWNSTREAM } from './workflows/dna_downstream'
 include { RNA_DOWNSTREAM } from './workflows/rna_downstream'
 include { COMBINE_MS } from './workflows/Combine_MS'
 include { MAXQUANT_ANALYSIS } from './modules/maxquant/maxquant'
+include { NETMHCPAN_ANALYSIS } from './workflows/all_netMHCpan'
 
-// 定义主工作流
+// define main workflow
 workflow {
-    // 创建主输入通道
+    // create main input channel
     samples_ch = Channel.fromPath(params.samplesheet)
         .splitCsv(header:true, sep:'\t')
         .map { row -> 
@@ -161,10 +165,10 @@ workflow {
             )
         }
 
-    // 初始化通道变量
-    dna_merged_fasta_ch = Channel.empty()
-    rna_short_peptides_ch = Channel.empty()
-    rna_long_peptides_ch = Channel.empty()
+    // initialize result channels
+    dna_results = Channel.empty()
+    rna_results = Channel.empty()
+    ms_database_results = Channel.empty()
 
     // 运行 DNA 分析
     if (!params.skip_dna) {
@@ -175,11 +179,8 @@ workflow {
         
         // 将DNA工作流的输出传递给下游分析工作流
         dna_downstream_results = DNA_DOWNSTREAM(
-            dna_results.annotation_vcf
+            dna_results.annotation_results
         )
-        
-        // 获取DNA合并的肽段文件
-        dna_merged_fasta_ch = dna_downstream_results.merged_fasta
         
         // 输出整合结果
         dna_downstream_results.merged_fasta.subscribe { sample_id, merged_fasta ->
@@ -207,26 +208,13 @@ workflow {
             rna_results.fusion_results
         )
         
-        // 获取RNA短肽段和长肽段
-        rna_short_peptides_ch = rna_downstream_results.all_short_peptides
-        rna_long_peptides_ch = rna_downstream_results.all_long_peptides
-        
-        // 输出合并后的肽段结果
+        // 输出RNA分析结果日志
         rna_downstream_results.all_short_peptides.subscribe { sample_id, peptide_file ->
             log.info "RNA short peptides for sample: ${sample_id}, file: ${peptide_file}"
         }
         
         rna_downstream_results.all_long_peptides.subscribe { sample_id, peptide_file ->
             log.info "RNA long peptides for sample: ${sample_id}, file: ${peptide_file}"
-        }
-        
-        // 输出融合肽段结果的特定日志
-        rna_downstream_results.fusion_short_peptides.subscribe { sample_id, peptide_file ->
-            log.info "RNA fusion short peptides for sample: ${sample_id}, file: ${peptide_file}"
-        }
-        
-        rna_downstream_results.fusion_long_peptides.subscribe { sample_id, peptide_file ->
-            log.info "RNA fusion long peptides for sample: ${sample_id}, file: ${peptide_file}"
         }
     }
     
@@ -236,44 +224,103 @@ workflow {
         uniprot_db = file(params.combine_ms.uniprot_fasta)
         crap_db = file(params.combine_ms.crap_fasta)
         
-        // 运行合并MS数据库进程
-        ms_results = COMBINE_MS(
-            dna_merged_fasta_ch,        // DNA合并的肽段
-            rna_short_peptides_ch,      // RNA短肽段
-            rna_long_peptides_ch,       // RNA长肽段
-            uniprot_db,                 // UniProt参考数据库
-            crap_db                     // cRAP污染物数据库
+        // 整合质谱数据库
+        ms_database_results = COMBINE_MS(
+            dna_downstream_results.merged_fasta,
+            rna_downstream_results.all_short_peptides,
+            rna_downstream_results.all_long_peptides,
+            uniprot_db,
+            crap_db
         )
-        
-        ms_results.combined_ms_db.subscribe { sample_id, ms_db ->
-            log.info "Mass spectrometry database created for sample: ${sample_id}"
-            log.info "MS database location: ${params.outdir}/${sample_id}/ms_database/${ms_db.getName()}"
-        }
-        
-        ms_results.database_stats.subscribe { stats_file ->
-            log.info "Mass spectrometry database statistics available in: ${stats_file}"
-        }
         
         // 运行MaxQuant分析（如果未跳过）
         if (!params.skip_maxquant) {
-            // 运行MaxQuant分析，使用来自samplesheet的MS文件路径
+            // 从samplesheet中获取MS文件路径
+            ms_files_ch = Channel.fromPath(params.samplesheet)
+                .splitCsv(header:true, sep:'\t')
+                .map { row -> tuple(row.sampleID, row.MSTumor.split(',')) }
+            
+            // 运行MaxQuant分析
             maxquant_results = MAXQUANT_ANALYSIS(
-                ms_results.combined_ms_db,
-                params.samplesheet
+                ms_database_results.clean_ms_db,
+                ms_files_ch
             )
-            
-            // 输出MaxQuant配置文件和结果信息
-            maxquant_results.mqpar_files.subscribe { sample_id, mqpar_file ->
-                log.info "MaxQuant configuration generated for sample: ${sample_id}"
-                log.info "Configuration file: ${params.maxquant.mqpar_dir}/mqpar_${sample_id}.xml"
-            }
-            
-            if (!params.maxquant.skip_run) {
-                maxquant_results.results.subscribe { sample_id, results ->
-                    log.info "MaxQuant analysis completed for sample: ${sample_id}"
-                    log.info "Results available in: ${params.maxquant.results_dir}/${sample_id}"
-                }
-            }
+        }
+    }
+    
+    // 运行netMHCpan分析
+    if (!params.skip_netmhcpan) {
+
+
+        // 运行netMHCpan分析工作流
+        netmhcpan_results = NETMHCPAN_ANALYSIS(
+            dna_downstream_results.merged_fasta,
+            rna_downstream_results.all_short_peptides,
+            rna_downstream_results.all_long_peptides,
+            rna_results.hla_results,
+            rna_results.hla2_results
+        )
+        
+        // 输出netMHCpan分析结果
+        netmhcpan_results.class1_8mer_results.subscribe { sample_id, results ->
+            log.info "HLA-I 8mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class1_9mer_results.subscribe { sample_id, results ->
+            log.info "HLA-I 9mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class1_10mer_results.subscribe { sample_id, results ->
+            log.info "HLA-I 10mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class1_11mer_results.subscribe { sample_id, results ->
+            log.info "HLA-I 11mer predictions completed for sample: ${sample_id}"
+        }
+        
+        // HLA-II predictions (12-25mer)
+        netmhcpan_results.class2_12mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 12mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_13mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 13mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_14mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 14mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_15mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 15mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_16mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 16mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_17mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 17mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_18mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 18mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_19mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 19mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_20mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 20mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_21mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 21mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_22mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 22mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_23mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 23mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_24mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 24mer predictions completed for sample: ${sample_id}"
+        }
+        netmhcpan_results.class2_25mer_results.subscribe { sample_id, results ->
+            log.info "HLA-II 25mer predictions completed for sample: ${sample_id}"
+        }
+        
+        netmhcpan_results.netctl_results.subscribe { sample_id, results ->
+            log.info "netCTL predictions completed for sample: ${sample_id}"
         }
     }
 }
